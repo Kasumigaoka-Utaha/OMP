@@ -1,6 +1,7 @@
 from typing import Dict
 import torch
 import numpy as np
+import os
 import copy
 from flow_policy_3d.common.pytorch_util import dict_apply
 from flow_policy_3d.common.replay_buffer import ReplayBuffer
@@ -20,6 +21,8 @@ class MetaworldDataset(BaseDataset):
             max_train_episodes=None,
             ):
         super().__init__()
+
+        zarr_path = os.path.join('/bd_byt4090i0/users/hfang/FlowPolicy/data',zarr_path.split('/')[-1])
         self.replay_buffer = ReplayBuffer.copy_from_path(
             zarr_path, keys=['state', 'action', 'point_cloud'])
         val_mask = get_val_mask(

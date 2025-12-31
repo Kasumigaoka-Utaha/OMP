@@ -92,6 +92,7 @@ class AdroitRunner(BaseRunner):
                     obs_dict_input['point_cloud'] = obs_dict['point_cloud'].unsqueeze(0)
                     obs_dict_input['agent_pos'] = obs_dict['agent_pos'].unsqueeze(0)
                     start_time = time.time()
+                    # print(obs_dict_input)
                     action_dict = policy.predict_action(obs_dict_input)
                     end_time = time.time()
                     total_time += end_time - start_time

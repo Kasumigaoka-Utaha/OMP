@@ -1,0 +1,27 @@
+name: dataset_1221_2
+
+task_name: ${name}
+
+shape_meta: &shape_meta
+  obs:
+    point_cloud:
+      shape: [1024, 3]
+      type: point_cloud
+    agent_pos:
+      shape: [7]
+      type: low_dim
+  action:
+    shape: [7]
+
+# No environment available for rollouts; training will log losses instead.
+env_runner: null
+
+dataset:
+  _target_: mp1.dataset.metaworld_dataset.MetaworldDataset
+  zarr_path: data/1221-2.zarr
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 42
+  val_ratio: 0.0
+  max_train_episodes: 30

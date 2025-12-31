@@ -22,7 +22,9 @@ class LinearNormalizer(DictOfTensorMixin):
         output_min=-1.,
         range_eps=1e-4,
         fit_offset=True):
+        # print(000000000000000000000)
         if isinstance(data, dict):
+            # print(000000000000000000000)
             for key, value in data.items():
                 self.params_dict[key] =  _fit(value, 
                     last_n_dims=last_n_dims,
@@ -33,6 +35,7 @@ class LinearNormalizer(DictOfTensorMixin):
                     range_eps=range_eps,
                     fit_offset=fit_offset)
         else:
+            # print(111111111111111111111111)
             self.params_dict['_default'] = _fit(data, 
                     last_n_dims=last_n_dims,
                     dtype=dtype,
@@ -55,6 +58,7 @@ class LinearNormalizer(DictOfTensorMixin):
         if isinstance(x, dict):
             result = dict()
             for key, value in x.items():
+                # print(self.params_dict.keys())
                 params = self.params_dict[key]
                 result[key] = _normalize(value, params, forward=forward)
             return result
@@ -65,6 +69,7 @@ class LinearNormalizer(DictOfTensorMixin):
             return _normalize(x, params, forward=forward)
 
     def normalize(self, x: Union[Dict, torch.Tensor, np.ndarray]) -> torch.Tensor:
+        # print(x)
         return self._normalize_impl(x, forward=True)
 
     def unnormalize(self, x: Union[Dict, torch.Tensor, np.ndarray]) -> torch.Tensor:

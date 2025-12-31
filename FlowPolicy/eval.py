@@ -13,7 +13,7 @@ import torch
 import dill
 from omegaconf import OmegaConf
 import pathlib
-from train import TrainFlowPolicyWorkspace
+from train_mp1 import TrainMP1Workspace
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
     
@@ -21,10 +21,10 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @hydra.main(
     version_base=None,
     config_path=str(pathlib.Path(__file__).parent.joinpath(
-        'flow_policy_3d', 'config'))
+        'mp1', 'config'))
 )
 def main(cfg):
-    workspace = TrainFlowPolicyWorkspace(cfg)
+    workspace = TrainMP1Workspace(cfg)
     workspace.eval()
 
 if __name__ == "__main__":

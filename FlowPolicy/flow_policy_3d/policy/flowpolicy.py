@@ -113,7 +113,7 @@ class FlowPolicy(BasePolicy):
             fix_obs_steps=True,
             action_visible=False
         )
-        
+        # print(2222222222222222222222)
         self.normalizer = LinearNormalizer()
         self.horizon = horizon
         self.obs_feature_dim = obs_feature_dim
@@ -149,6 +149,8 @@ class FlowPolicy(BasePolicy):
         result: must include "action" key
         """
         # normalize input
+        # print(obs_dict)
+        # print(self.normalizer)
         nobs = self.normalizer.normalize(obs_dict)
         # this_n_point_cloud = nobs['imagin_robot'][..., :3] # only use coordinate
         if not self.use_pc_color:
@@ -212,9 +214,14 @@ class FlowPolicy(BasePolicy):
         dt = 1./self.num_inference_step
         eps = self.eps
 
+
         for i in range(sde.sample_N):
             num_t = i /sde.sample_N * (1 - eps) + eps
             t = torch.ones(z.shape[0], device=noise.device) * num_t
+            # print(z.size())
+
+
+
             pred = self.model(z, t*99, local_cond=local_cond, global_cond=global_cond) ### Copy from models/utils.py 
             # convert to diffusion models if sampling.sigma_variance > 0.0 while perserving the marginal probability 
             sigma_t = sde.sigma_t(num_t)
@@ -316,6 +323,10 @@ class FlowPolicy(BasePolicy):
         + (~less_than_threshold) * x_at_segment_ends
         )
             return res
+
+        # import ipdb;
+        # ipdb.set_trace()
+
         vt = self.model(xt, t*99, cond=local_cond, global_cond=global_cond)
         vr = self.model(xr, r*99, local_cond=local_cond, global_cond=global_cond)
         # mask

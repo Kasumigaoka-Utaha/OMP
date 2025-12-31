@@ -1,7 +1,6 @@
 if __name__ == "__main__":
     import sys
     import os
-    os.environ['CUDA_VISIBLE_DEVICES'] = "0"
     import pathlib
 
     ROOT_DIR = str(pathlib.Path(__file__).parent.parent.parent)
@@ -17,7 +16,7 @@ import pathlib
 from torch.utils.data import DataLoader
 import copy
 import random
-import wandb
+import swanlab
 import tqdm
 import numpy as np
 from termcolor import cprint
@@ -25,19 +24,21 @@ import shutil
 import time
 import threading
 from hydra.core.hydra_config import HydraConfig
-from flow_policy_3d.policy.flowpolicy import FlowPolicy
-from flow_policy_3d.dataset.base_dataset import BaseDataset
-from flow_policy_3d.env_runner.base_runner import BaseRunner
-from flow_policy_3d.common.checkpoint_util import TopKCheckpointManager
-from flow_policy_3d.common.pytorch_util import dict_apply, optimizer_to
-from flow_policy_3d.model.flow.ema_model import EMAModel
-from flow_policy_3d.model.common.lr_scheduler import get_scheduler
+from mp1.policy.meanpolicy import Meanpolicy
+from mp1.dataset.base_dataset import BaseDataset
+from mp1.env_runner.base_runner import BaseRunner
+from mp1.common.checkpoint_util import TopKCheckpointManager
+from mp1.common.pytorch_util import dict_apply, optimizer_to
+from mp1.model.mean.ema_model import EMAModel
+from mp1.model.common.lr_scheduler import get_scheduler
 import warnings
+
 warnings.filterwarnings("ignore")
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
-class TrainFlowPolicyWorkspace:
+
+class TrainMP1Workspace:
     include_keys = ['global_step', 'epoch']
     exclude_keys = tuple()
 
@@ -45,7 +46,7 @@ class TrainFlowPolicyWorkspace:
         self.cfg = cfg
         self._output_dir = output_dir
         self._saving_thread = None
-        
+
         # set seed
         seed = cfg.training.seed
         torch.manual_seed(seed)
@@ -53,15 +54,14 @@ class TrainFlowPolicyWorkspace:
         random.seed(seed)
 
         # configure model
-        self.model: FlowPolicy = hydra.utils.instantiate(cfg.policy)
+        self.model: MP1 = hydra.utils.instantiate(cfg.policy)
 
-        self.ema_model: FlowPolicy = None
+        self.ema_model: MP1 = None
         if cfg.training.use_ema:
             try:
                 self.ema_model = copy.deepcopy(self.model)
-            except: # minkowski engine could not be copied. recreate it
+            except:  # minkowski engine could not be copied. recreate it
                 self.ema_model = hydra.utils.instantiate(cfg.policy)
-
 
         # configure training state
         self.optimizer = hydra.utils.instantiate(
@@ -71,11 +71,9 @@ class TrainFlowPolicyWorkspace:
         self.global_step = 0
         self.epoch = 0
 
-
-
     def run(self):
         cfg = copy.deepcopy(self.cfg)
-        
+
         if cfg.training.debug:
             cfg.training.num_epochs = 100
             cfg.training.max_train_steps = 10
@@ -91,9 +89,9 @@ class TrainFlowPolicyWorkspace:
             RUN_ROLLOUT = True
             RUN_CKPT = True
             verbose = False
-        
-        RUN_VALIDATION = False # reduce time cost
-        
+
+        RUN_VALIDATION = False  # reduce time cost
+
         # resume training
         if cfg.training.resume:
             lastest_ckpt_path = self.get_checkpoint_path()
@@ -123,11 +121,11 @@ class TrainFlowPolicyWorkspace:
             optimizer=self.optimizer,
             num_warmup_steps=cfg.training.lr_warmup_steps,
             num_training_steps=(
-                len(train_dataloader) * cfg.training.num_epochs) \
-                    // cfg.training.gradient_accumulate_every,
+                                       len(train_dataloader) * cfg.training.num_epochs) \
+                               // cfg.training.gradient_accumulate_every,
             # pytorch assumes stepping LRScheduler every epoch
             # however huggingface diffusers steps it every batch
-            last_epoch=self.global_step-1
+            last_epoch=self.global_step - 1
         )
 
         # configure ema
@@ -145,19 +143,22 @@ class TrainFlowPolicyWorkspace:
 
         if env_runner is not None:
             assert isinstance(env_runner, BaseRunner)
-        
+
         cfg.logging.name = str(cfg.logging.name)
         cprint("-----------------------------", "yellow")
         cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
         cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
         cprint("-----------------------------", "yellow")
-        # configure logging
-        wandb_run = wandb.init(
+        # print(f"Logging mode from config: {cfg.logging.mode}")  # 输出 cfg.logging.mode
+
+        cfg.logging.mode = 'cloud'
+        wandb_run = swanlab.init(
             dir=str(self.output_dir),
+            model=cfg.logging.mode,
             config=OmegaConf.to_container(cfg, resolve=True),
             **cfg.logging
         )
-        wandb.config.update(
+        swanlab.config.update(
             {
                 "output_dir": self.output_dir,
             }
@@ -179,28 +180,29 @@ class TrainFlowPolicyWorkspace:
         # save batch for sampling
         train_sampling_batch = None
 
-
         # training loop
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
+        test_scores = []
+        cfg.training.num_epochs = 1005
         for local_epoch_idx in range(cfg.training.num_epochs):
             step_log = dict()
             # ========= train for this epoch ==========
             train_losses = list()
-            with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
-                    leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+            with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}",
+                           leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                 for batch_idx, batch in enumerate(tepoch):
                     t1 = time.time()
                     # device transfer
                     batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                     if train_sampling_batch is None:
                         train_sampling_batch = batch
-                
+
                     # compute loss
                     t1_1 = time.time()
                     raw_loss, loss_dict = self.model.compute_loss(batch)
                     loss = raw_loss / cfg.training.gradient_accumulate_every
                     loss.backward()
-                    
+
                     t1_2 = time.time()
 
                     # step optimizer
@@ -226,22 +228,22 @@ class TrainFlowPolicyWorkspace:
                     t1_5 = time.time()
                     step_log.update(loss_dict)
                     t2 = time.time()
-                    
-                    if verbose:
-                        print(f"total one step time: {t2-t1:.3f}")
-                        print(f" compute loss time: {t1_2-t1_1:.3f}")
-                        print(f" step optimizer time: {t1_3-t1_2:.3f}")
-                        print(f" update ema time: {t1_4-t1_3:.3f}")
-                        print(f" logging time: {t1_5-t1_4:.3f}")
 
-                    is_last_batch = (batch_idx == (len(train_dataloader)-1))
+                    if verbose:
+                        print(f"total one step time: {t2 - t1:.3f}")
+                        print(f" compute loss time: {t1_2 - t1_1:.3f}")
+                        print(f" step optimizer time: {t1_3 - t1_2:.3f}")
+                        print(f" update ema time: {t1_4 - t1_3:.3f}")
+                        print(f" logging time: {t1_5 - t1_4:.3f}")
+
+                    is_last_batch = (batch_idx == (len(train_dataloader) - 1))
                     if not is_last_batch:
                         # log of last step is combined with validation and rollout
                         wandb_run.log(step_log, step=self.global_step)
                         self.global_step += 1
 
                     if (cfg.training.max_train_steps is not None) \
-                        and batch_idx >= (cfg.training.max_train_steps-1):
+                            and batch_idx >= (cfg.training.max_train_steps - 1):
                         break
 
             # at the end of each epoch
@@ -264,21 +266,20 @@ class TrainFlowPolicyWorkspace:
                 # print(f"rollout time: {t4-t3:.3f}")
                 # log all
                 step_log.update(runner_log)
+                test_scores.append(runner_log['test_mean_score'])
 
-            
-                
             # run validation
             if (self.epoch % cfg.training.val_every) == 0 and RUN_VALIDATION:
                 with torch.no_grad():
                     val_losses = list()
-                    with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}", 
-                            leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                    with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}",
+                                   leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                         for batch_idx, batch in enumerate(tepoch):
                             batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                             loss, loss_dict = self.model.compute_loss(batch)
                             val_losses.append(loss)
                             if (cfg.training.max_val_steps is not None) \
-                                and batch_idx >= (cfg.training.max_val_steps-1):
+                                    and batch_idx >= (cfg.training.max_val_steps - 1):
                                 break
                     if len(val_losses) > 0:
                         val_loss = torch.mean(torch.tensor(val_losses)).item()
@@ -292,7 +293,7 @@ class TrainFlowPolicyWorkspace:
                     batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                     obs_dict = batch['obs']
                     gt_action = batch['action']
-                    
+
                     result = policy.predict_action(obs_dict)
                     pred_action = result['action_pred']
                     mse = torch.nn.functional.mse_loss(pred_action, gt_action)
@@ -306,7 +307,7 @@ class TrainFlowPolicyWorkspace:
 
             if env_runner is None:
                 step_log['test_mean_score'] = - train_loss
-                
+
             # checkpoint
             if (self.epoch % cfg.training.checkpoint_every) == 0 and cfg.checkpoint.save_ckpt:
                 # checkpointing
@@ -320,7 +321,7 @@ class TrainFlowPolicyWorkspace:
                 for key, value in step_log.items():
                     new_key = key.replace('/', '_')
                     metric_dict[new_key] = value
-                
+
                 # We can't copy the last checkpoint here
                 # since save_checkpoint uses threads.
                 # therefore at this point the file might have been empty!
@@ -338,16 +339,23 @@ class TrainFlowPolicyWorkspace:
             self.epoch += 1
             del step_log
 
+        last_data = dict()
+        top5 = sorted(test_scores, reverse=True)[:5]
+        print("top 5 mean_scroes:", 100 * sum(top5) / len(top5))
+        last_data["top_5_mean_scroes"] = 100 * sum(top5) / len(top5)
+
+        wandb_run.log(last_data, step=self.global_step)
+
     def eval(self):
         # load the latest checkpoint
-        
+
         cfg = copy.deepcopy(self.cfg)
-        
+
         lastest_ckpt_path = self.get_checkpoint_path(tag="latest")
         if lastest_ckpt_path.is_file():
             cprint(f"Resuming from checkpoint {lastest_ckpt_path}", 'magenta')
             self.load_checkpoint(path=lastest_ckpt_path)
-        
+
         # configure env
         env_runner: BaseRunner
         env_runner = hydra.utils.instantiate(
@@ -361,25 +369,23 @@ class TrainFlowPolicyWorkspace:
         policy.cuda()
 
         runner_log = env_runner.run(policy)
-        
-      
+
         cprint(f"---------------- Eval Results --------------", 'magenta')
         for key, value in runner_log.items():
             if isinstance(value, float):
                 cprint(f"{key}: {value:.4f}", 'magenta')
-        
+
     @property
     def output_dir(self):
         output_dir = self._output_dir
         if output_dir is None:
             output_dir = HydraConfig.get().runtime.output_dir
         return output_dir
-    
 
-    def save_checkpoint(self, path=None, tag='latest', 
-            exclude_keys=None,
-            include_keys=None,
-            use_thread=False):
+    def save_checkpoint(self, path=None, tag='latest',
+                        exclude_keys=None,
+                        include_keys=None,
+                        use_thread=False):
         if path is None:
             path = pathlib.Path(self.output_dir).joinpath('checkpoints', f'{tag}.ckpt')
         else:
@@ -394,7 +400,7 @@ class TrainFlowPolicyWorkspace:
             'cfg': self.cfg,
             'state_dicts': dict(),
             'pickles': dict()
-        } 
+        }
 
         for key, value in self.__dict__.items():
             if hasattr(value, 'state_dict') and hasattr(value, 'load_state_dict'):
@@ -408,19 +414,19 @@ class TrainFlowPolicyWorkspace:
                 payload['pickles'][key] = dill.dumps(value)
         if use_thread:
             self._saving_thread = threading.Thread(
-                target=lambda : torch.save(payload, path.open('wb'), pickle_module=dill))
+                target=lambda: torch.save(payload, path.open('wb'), pickle_module=dill))
             self._saving_thread.start()
         else:
             torch.save(payload, path.open('wb'), pickle_module=dill)
-        
+
         del payload
         torch.cuda.empty_cache()
         return str(path.absolute())
-    
+
     def get_checkpoint_path(self, tag='latest'):
-        if tag=='latest':
+        if tag == 'latest':
             return pathlib.Path(self.output_dir).joinpath('checkpoints', f'{tag}.ckpt')
-        elif tag=='best': 
+        elif tag == 'best':
             # the checkpoints are saved as format: epoch={}-test_mean_score={}.ckpt
             # find the best checkpoint
             checkpoint_dir = pathlib.Path(self.output_dir).joinpath('checkpoints')
@@ -437,8 +443,6 @@ class TrainFlowPolicyWorkspace:
             return pathlib.Path(self.output_dir).joinpath('checkpoints', best_ckpt)
         else:
             raise NotImplementedError(f"tag {tag} not implemented")
-            
-            
 
     def load_payload(self, payload, exclude_keys=None, include_keys=None, **kwargs):
         if exclude_keys is None:
@@ -452,30 +456,30 @@ class TrainFlowPolicyWorkspace:
         for key in include_keys:
             if key in payload['pickles']:
                 self.__dict__[key] = dill.loads(payload['pickles'][key])
-    
+
     def load_checkpoint(self, path=None, tag='latest',
-            exclude_keys=None, 
-            include_keys=None, 
-            **kwargs):
+                        exclude_keys=None,
+                        include_keys=None,
+                        **kwargs):
         if path is None:
             path = self.get_checkpoint_path(tag=tag)
         else:
             path = pathlib.Path(path)
         payload = torch.load(path.open('rb'), pickle_module=dill, map_location='cpu')
-        self.load_payload(payload, 
-            exclude_keys=exclude_keys, 
-            include_keys=include_keys)
+        self.load_payload(payload,
+                          exclude_keys=exclude_keys,
+                          include_keys=include_keys)
         return payload
-    
+
     @classmethod
-    def create_from_checkpoint(cls, path, 
-            exclude_keys=None, 
-            include_keys=None,
-            **kwargs):
+    def create_from_checkpoint(cls, path,
+                               exclude_keys=None,
+                               include_keys=None,
+                               **kwargs):
         payload = torch.load(open(path, 'rb'), pickle_module=dill)
         instance = cls(payload['cfg'])
         instance.load_payload(
-            payload=payload, 
+            payload=payload,
             exclude_keys=exclude_keys,
             include_keys=include_keys,
             **kwargs)
@@ -492,20 +496,22 @@ class TrainFlowPolicyWorkspace:
         path.parent.mkdir(parents=False, exist_ok=True)
         torch.save(self, path.open('wb'), pickle_module=dill)
         return str(path.absolute())
-    
+
     @classmethod
     def create_from_snapshot(cls, path):
         return torch.load(open(path, 'rb'), pickle_module=dill)
-    
+
 
 @hydra.main(
     version_base=None,
     config_path=str(pathlib.Path(__file__).parent.joinpath(
-        'flow_policy_3d', 'config'))
+        'mp1', 'config'))
 )
 def main(cfg):
-    workspace = TrainFlowPolicyWorkspace(cfg)
+    workspace = TrainMP1Workspace(cfg)
     workspace.run()
+
 
 if __name__ == "__main__":
     main()
+

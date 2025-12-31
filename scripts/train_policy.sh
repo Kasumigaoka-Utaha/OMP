@@ -16,7 +16,7 @@ run_dir="data/outputs/${exp_name}_seed${seed}"
 
 
 # gpu_id=$(bash scripts/find_gpu.sh)
-gpu_id=${0}
+gpu_id=${5}
 echo -e "\033[33mgpu id (to use): ${gpu_id}\033[0m"
 
 
@@ -31,7 +31,7 @@ else
     echo -e "\033[33mTrain mode\033[0m"
 fi
 
-cd /data/code/FlowPolicy/FlowPolicy
+cd /bd_byt4090i0/users/hfang/FlowPolicy/FlowPolicy
 
 export HYDRA_FULL_ERROR=1 
 export CUDA_VISIBLE_DEVICES=${gpu_id}

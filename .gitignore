@@ -1,0 +1,7 @@
+*.stderr
+*.stdout
+*.ckpt
+*.zarr
+*.xls
+/FlowPolicy/data/
+/data/
