@@ -1,0 +1,28 @@
+# Compatibility-oriented runtime dependencies for Python 3.8 on Linux.
+# Install the CUDA wheels first, as described in install.md.
+# Simulator sources and their build dependencies are installed separately.
+torch==2.0.1
+torchvision==0.15.2
+numpy==1.23.5
+zarr==2.12.0
+numcodecs==0.11.0
+hydra-core==1.2.0
+omegaconf==2.2.3
+dill==0.3.5.1
+einops==0.4.1
+diffusers==0.11.1
+huggingface-hub==0.25.2
+numba==0.56.4
+wandb
+tqdm
+termcolor
+matplotlib
+imageio
+imageio-ffmpeg
+av
+moviepy<2
+natsort
+open3d
+dm_control
+gpustat
+ipdb
